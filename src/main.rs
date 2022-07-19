@@ -1,10 +1,10 @@
 use std::fmt;
 use std::ops::{Add, Sub, Mul, Div, Rem, Neg, AddAssign, SubAssign, MulAssign, DivAssign, RemAssign};
 use std::cmp::Ordering;
+use std::fs;
+use std::path::Path;
 
-extern crate yaml_rust;
-use yaml_rust::{YamlLoader, YamlEmitter};
-
+use json;
 
 fn calc_next_prime(primes: &mut Vec<u32>, potential_prime: &mut u32) -> u32 {
     loop {
@@ -29,13 +29,17 @@ fn calc_next_prime(primes: &mut Vec<u32>, potential_prime: &mut u32) -> u32 {
 }
 
 fn get_prime_factors(mut x: u32) -> Vec<u32> {
-    let prime_data = YamlLoader::load_from_str(include_str!("../data/prime_numbers.yml")).unwrap();
-    let prime_data = &prime_data[0];
-
-    let mut potential_prime = prime_data["potential_prime"].as_i64().unwrap() as u32;
+    let prime_data = json::parse(include_str!("../data/prime_numbers.json")).unwrap();
+    let mut potential_prime = prime_data["potential_prime"].as_u32().unwrap();
     let mut primes: Vec<u32> = Vec::new();
-    for prime in prime_data["primes"].as_vec().unwrap() {
-        primes.push(prime.as_i64().unwrap() as u32);
+    // json library pleeease add JsonValue.as_vec()
+    let mut i = 0;
+    loop {
+        match prime_data["primes"][i].as_u32() {
+            Some(n) => primes.push(n),
+            None => break
+        }
+        i += 1;
     }
 
     let mut prime_factors: Vec<u32> = Vec::new();
@@ -55,7 +59,13 @@ fn get_prime_factors(mut x: u32) -> Vec<u32> {
             calc_next_prime(&mut primes, &mut potential_prime);
         }
     }
-    // Write to yaml here
+    fs::write(
+        "data/prime_numbers.json", 
+        json::object! {
+            potential_prime: potential_prime,
+            primes: primes
+        }.dump()
+    ).unwrap();
     prime_factors
 }
 
@@ -102,6 +112,7 @@ fn get_lcm(x: u32, y:u32) -> u32 {
 }
 
 #[derive(Copy, Clone)]
+#[derive(PartialEq)]
 enum Sign {
     Positive,
     Negative,
@@ -181,18 +192,18 @@ struct Rational {
 impl Rational {
     fn new(num: i32, denom: i32) -> Rational {
         if denom == 0 {
-            panic!("Fraction denominator cannot be 0");
+            panic!("Denominator cannot be 0");
         }
-        let mut fraction = Rational {
+        let mut rat = Rational {
             num: num.abs() as u32,
             denom: denom.abs() as u32,
             sign: Sign::signof(num) * Sign::signof(denom)
         };
-        fraction.simplify();
-        fraction
+        rat.simplify();
+        rat
     }
 
-    // fn from_f64(x: f64) -> Fraction {
+    // fn from_f64(x: f64) -> Rational {
 
     // }
 
@@ -240,7 +251,7 @@ impl Add for Rational {
 impl Sub for Rational {
     type Output = Self;
 
-    fn add(self, other: Self) -> Self {
+    fn sub(self, other: Self) -> Self {
         let lcm = get_lcm(self.denom, other.denom);
         let num = (self.num * lcm / self.denom) as i32 * self.sign.as_i32()
                      - (other.num * lcm / other.denom) as i32 * other.sign.as_i32();
@@ -256,13 +267,13 @@ impl Mul for Rational {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self {
-        let frac = Rational {
+        let mut rat = Rational {
             num: self.num * other.num,
             denom: self.denom * other.denom,
             sign: self.sign * other.sign
         };
-        frac.simplify();
-        frac
+        rat.simplify();
+        rat
     }
 }
 
@@ -270,13 +281,13 @@ impl Div for Rational {
     type Output = Self;
 
     fn div(self, other: Self) -> Self {
-        let frac = Rational {
+        let mut rat = Rational {
             num: self.num * other.denom,
             denom: self.denom * other.num,
             sign: self.sign * other.sign
         };
-        frac.simplify();
-        frac
+        rat.simplify();
+        rat
     }
 }
 
@@ -285,7 +296,7 @@ impl Rem for Rational {
 
     fn rem(self, other: Self) -> Self {
         let q = (self / other).as_f64().floor();
-        self - other * q
+        self - other * Rational::new(q as i32, 1)
     }
 }
 
@@ -302,31 +313,31 @@ impl Neg for Rational {
 
 impl AddAssign for Rational {
     fn add_assign(&mut self, other: Self) {
-        self = self + other;
+        *self = *self + other;
     }
 }
 
 impl SubAssign for Rational {
-    fn add_assign(&mut self, other: Self) {
-        self = self - other;
+    fn sub_assign(&mut self, other: Self) {
+        *self = *self - other;
     }
 }
 
 impl MulAssign for Rational {
-    fn add_assign(&mut self, other: Self) {
-        self = self * other;
+    fn mul_assign(&mut self, other: Self) {
+        *self = *self * other;
     }
 }
 
 impl DivAssign for Rational {
-    fn add_assign(&mut self, other: Self) {
-        self = self / other;
+    fn div_assign(&mut self, other: Self) {
+        *self = *self / other;
     }
 }
 
 impl RemAssign for Rational {
-    fn add_assign(&mut self, other: Self) {
-        self = self % other;
+    fn rem_assign(&mut self, other: Self) {
+        *self = *self % other;
     }
 }
 
@@ -338,7 +349,7 @@ impl fmt::Display for Rational {
 
 impl fmt::Debug for Rational {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "Fraction[num: {}, denom: {}, sign: {:?}]", self.num, self.denom, self.sign)
+        write!(fmt, "Rational[num: {}, denom: {}, sign: {:?}]", self.num, self.denom, self.sign)
     }
 }
 
@@ -363,32 +374,32 @@ fn main() {
     // dbg!(get_lcm(201, 3859));
     // dbg!(get_lcm(423, 57));
     
-    // println!("{}", Fraction::new(-2, 4));
-    // println!("{}", Fraction::new(42, 322));
-    // println!("{}", Fraction::new(57, 1273));
-    // println!("{}", Fraction::new(100, -5));
-    // println!("{}", Fraction::new(-42, -366));
-    // println!("{}", Fraction::new(69, 69));
-    // println!("{}", Fraction::new(0, 1));
-    // println!("{}", Fraction::new(-0, 5));
-    // println!("{}", Fraction::new(0, -10));
-    // println!("{}", Fraction::new(3, 0));
-    // println!("{}", Fraction::new(0, 0));
+    // println!("{}", Rational::new(-2, 4));
+    // println!("{}", Rational::new(42, 322));
+    // println!("{}", Rational::new(57, 1273));
+    // println!("{}", Rational::new(100, -5));
+    // println!("{}", Rational::new(-42, -366));
+    // println!("{}", Rational::new(69, 69));
+    // println!("{}", Rational::new(0, 1));
+    // println!("{}", Rational::new(-0, 5));
+    // println!("{}", Rational::new(0, -10));
+    // println!("{}", Rational::new(3, 0));
+    // println!("{}", Rational::new(0, 0));
 
-    // let frac = Fraction::new(1, 2);
-    // let other = frac;
-    // println!("{}, {}", frac, other); 
-    // dbg!(Fraction::new(1, 1) + Fraction::new(1, 1));
+    // let rat = Rational::new(1, 2);
+    // let other = rat;
+    // println!("{}, {}", rat, other); 
+    // dbg!(Rational::new(1, 1) + Rational::new(1, 1));
     println!("{}", Rational::new(1, 1) + Rational::new(1, 1));
     println!("{}", Rational::new(5, 6) + Rational::new(4, 3));
     println!("{}", Rational::new(1, -3) + Rational::new(-1, -2));
     println!("{}", Rational::new(46, 54) + Rational::new(-7, 9));
     println!("{}", Rational::new(2, -11) + Rational::new(3, -12));
     println!("{}", Rational::new(4, 73) + Rational::new(208, 1999));
-    // println!("{}", Fraction::new(1, 1) + Fraction::new(1, 1));
-    // println!("{}", Fraction::new(1, 1) + Fraction::new(1, 1));
-    // println!("{}", Fraction::new(1, 1) + Fraction::new(1, 1));
-    // println!("{}", Fraction::new(1, 1) + Fraction::new(1, 1));
-    // println!("{}", Fraction::new(1, 1) + Fraction::new(1, 1));
+    // println!("{}", Rational::new(1, 1) + Rational::new(1, 1));
+    // println!("{}", Rational::new(1, 1) + Rational::new(1, 1));
+    // println!("{}", Rational::new(1, 1) + Rational::new(1, 1));
+    // println!("{}", Rational::new(1, 1) + Rational::new(1, 1));
+    // println!("{}", Rational::new(1, 1) + Rational::new(1, 1));
     
 }
